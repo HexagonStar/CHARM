@@ -9,7 +9,7 @@ from datasets import Dataset
 from tqdm import tqdm, trange
 import argparse
 import os
-# os.environ['CUDA_VISIBLE_DEVICES'] = "4"
+# os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 
 import torch
 
@@ -40,6 +40,9 @@ def inference_for_subset(args):
     elif "llama" in args.model_name.lower():
         generation_kwargs["stop_token_ids"] = [128001, 128009]
 
+    print(f"VLLM kwargs: {vllm_kwargs}")
+    print(f"Generation kwargs: {generation_kwargs}")
+
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
  
@@ -50,20 +53,21 @@ def inference_for_subset(args):
     ds = build_dataset(args.dataset_name, from_disk=args.from_disk, split=args.split).shuffle(seed=args.seed)
 
     prompt_list = []
+    raw_prompt_list = []
     for data in ds:
         prompt = data['chosen'][0]
         prompt = tokenizer.apply_chat_template([prompt], add_generation_prompt=True, tokenize=False)
         prompt_list.append(prompt)
+        raw_prompt_list.append(data['chosen'][0]['content'])
     
     # Inference
     outputs = []
     batch_output = model.generate(prompt_list)
-    for output in batch_output:
-        for i in range(len(output)):
-            outputs.append({
-                'prompt': ds[i]['chosen'][0],
-                'response': output[i]
-            })
+    for i in range(len(batch_output)):
+        outputs.append({
+            'prompt': raw_prompt_list[i],
+            'response': batch_output[i][0]
+        })
     
     df = pd.DataFrame(outputs)
     dataset = Dataset.from_pandas(df)
@@ -83,7 +87,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_model_len', type=int, default=4096, help='Maximum model length')
     parser.add_argument('--batch_size', type=int, default=8, help='Batch size for translation')
     parser.add_argument('--is_dp', action='store_true')
-    parser.add_argument('--temperature', type=float, default=0.0)
+    parser.add_argument('--temperature', type=float, default=0.7)
     parser.add_argument('--top_p', type=float, default=0.9)
     parser.add_argument('--max_new_tokens', type=int, default=4096)
     parser.add_argument('--max_num_seqs', type=int, default=1)
