@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import argparse
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = "4"
+# os.environ['CUDA_VISIBLE_DEVICES'] = "3"
 tqdm.pandas()
 
 from utils import *
@@ -102,7 +102,13 @@ class SkyWorkPipeline:
 
 def score_for_subset(args):
     rm_name = args.model_name
-    rm = SkyWorkPipeline(rm_name)
+    if "armorm" in rm_name.lower():
+        rm = ArmoRMPipeline(rm_name)
+    elif "skywork" in rm_name.lower():
+        rm = SkyWorkPipeline(rm_name)
+    else:
+        print("Reward model not found")
+        return
 
     ds = build_dataset(args.dataset_name, args.from_disk)
 
@@ -128,23 +134,17 @@ def score_for_subset(args):
     dataset.save_to_disk(args.output_path)
     
 
-def average_score():
-    MODEL_LIST = ['gemma-2-9b-it-SimPO',
-                  'gemma-2-27b-it',
-                  'Llama-3.1-8B-Instruct',
-                  'Llama-3.1-70B-Instruct',
-                  'Qwen2.5-72B-Instruct']
-    path_prefix = "./results/ultrafeedback/temp0.7/"
-    for model in MODEL_LIST:
-        if not os.path.exists(f"{path_prefix}{model}-test_sft-skywork-score"):
-            print(f"Score for {model} not found")
-            continue
-        ds = build_dataset(f"{path_prefix}{model}-test_sft-skywork-score", from_disk=True)
+def average_score(args):
+    score_dir = args.score_dir
+    # find all subdirectories under score_dir with suffix '-score'
+    score_files = [f for f in os.listdir(score_dir) if os.path.isdir(os.path.join(score_dir, f))]
+    for score_file in score_files:
+        ds = build_dataset(f"{score_dir}/{score_file}", from_disk=True)
         scores = []
         for i, example in enumerate(tqdm(ds)):
             score = example['score']
             scores.append(score)
-        print(f"{model}:{sum(scores)/len(scores)}")
+        print(f"{score_file}:{sum(scores)/len(scores)}")
 
 
 
@@ -152,11 +152,15 @@ if __name__ == '__main__':
     # Set up argument parsing
     parser = argparse.ArgumentParser(description='Inference ')
     parser.add_argument('--dataset_name', type=str, default='hendrydong/preference_700K', help='Dataset name')
-    parser.add_argument('--from_disk', type=bool, default=False, help='Load dataset from disk')
+    parser.add_argument('--from_disk', action='store_true', help='Load dataset from disk')
     parser.add_argument('--model_name', type=str, default='RLHFlow/ArmoRM-Llama3-8B-v0.1', help='Reward model name')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--output_path', type=str)
+    parser.add_argument('--score_dir', type=str)
+    parser.add_argument('--avg_score', action='store_true')
     args = parser.parse_args()
 
-    # score_for_subset(args)
-    average_score()
+    if args.avg_score:
+        average_score(args)
+    else:
+        score_for_subset(args)

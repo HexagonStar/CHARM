@@ -9,8 +9,7 @@ from datasets import Dataset
 from tqdm import tqdm, trange
 import argparse
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3"
-
+# os.environ['CUDA_VISIBLE_DEVICES'] = "4"
 
 import torch
 
@@ -55,21 +54,17 @@ def inference_for_subset(args):
         prompt = data['chosen'][0]
         prompt = tokenizer.apply_chat_template([prompt], add_generation_prompt=True, tokenize=False)
         prompt_list.append(prompt)
-
-    prompt_list = prompt_list[:10]
+    
     # Inference
     outputs = []
-    for prompt in tqdm(prompt_list):
-        if isinstance(prompt, str):
-            prompt = [prompt]
-        batch_output = model.generate(prompt)
-        for output in batch_output:
-            for i in range(len(output)):
-                outputs.append({
-                    'prompt': prompt[i],
-                    'response': output[i]
-                })
-
+    batch_output = model.generate(prompt_list)
+    for output in batch_output:
+        for i in range(len(output)):
+            outputs.append({
+                'prompt': ds[i]['chosen'][0],
+                'response': output[i]
+            })
+    
     df = pd.DataFrame(outputs)
     dataset = Dataset.from_pandas(df)
     dataset.save_to_disk(args.output_path)
@@ -84,7 +79,7 @@ if __name__ == '__main__':
     parser.add_argument('--split', type=str, default='test', help='Dataset split')
     parser.add_argument('--from_disk', action='store_true', help='Load dataset from disk')
     parser.add_argument('--model_name', type=str, default='meta-llama/Meta-Llama-3-8B-Instruct', help='Translation model name') #'THUDM/LongWriter-llama3.1-8b'
-    parser.add_argument('--gpu_memory_utilization', type=float, default=0.5, help='GPU memory utilization for VLLM Agent')
+    parser.add_argument('--gpu_memory_utilization', type=float, default=0.9, help='GPU memory utilization for VLLM Agent')
     parser.add_argument('--max_model_len', type=int, default=4096, help='Maximum model length')
     parser.add_argument('--batch_size', type=int, default=8, help='Batch size for translation')
     parser.add_argument('--is_dp', action='store_true')
