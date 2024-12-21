@@ -143,24 +143,7 @@ def build_dataset(tokenizer, train_path, eval_path):
         sample["input_ids_k"] = tokenized_neg["input_ids"]
         sample["attention_mask_k"] = tokenized_neg["attention_mask"]
         return sample
-    
-    def tokenize_list(sample):
-        shift_list = [6, -4.4, -11, 0, 0]
-        scores = sample['score']
-        scores = [score + shift for score, shift in zip(scores, shift_list)]
-        max_idx = scores.index(max(scores))
-        min_idx = scores.index(min(scores))
-        sample['response_chat_template'] = [tokenizer.apply_chat_template(response, tokenize=False, add_generation_prompt=False).replace(tokenizer.bos_token, "") for response in sample['response']]
-        tokenized_responses = [tokenizer(response, truncation=True) for response in sample['response_chat_template']]
-        sample["list_input_ids"] = [tokenized_response["input_ids"] for tokenized_response in tokenized_responses]
-        sample["list_attention_mask"] = [tokenized_response["attention_mask"] for tokenized_response in tokenized_responses]
-        tokenized_pos = tokenized_responses[max_idx]
-        tokenized_neg = tokenized_responses[min_idx]
-        sample["input_ids_j"] = tokenized_pos["input_ids"]
-        sample["attention_mask_j"] = tokenized_pos["attention_mask"]
-        sample["input_ids_k"] = tokenized_neg["input_ids"]
-        sample["attention_mask_k"] = tokenized_neg["attention_mask"]
-        return sample
+
     
     if script_args.from_disk:
         ds = load_from_disk(train_path).shuffle(seed=42)
@@ -180,8 +163,6 @@ def build_dataset(tokenizer, train_path, eval_path):
 train_dataset, eval_dataset = build_dataset(tokenizer, train_path, eval_path)
 print("Training set: ", len(train_dataset), " Eval set: ", len(eval_dataset))
 
-# Define the trainer
-wandb.login(key="9cf2d38668e176227a2e138abda0667cd2dfbdf0")
 
 # Define the trainer
 training_args = TrainingArguments(
@@ -261,64 +242,6 @@ class RewardDataCollatorWithPadding:
         }
         return batch
 
-@dataclass
-class ListRewardDataCollatorWithPadding:
-    tokenizer: AutoTokenizer
-    padding: Union[bool, str, PaddingStrategy] = True
-    max_length: Optional[int] = None
-    pad_to_multiple_of: Optional[int] = None
-    return_tensors: str = "pt"
-
-    def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, Any]:
-        list_merged_features = []
-        for feature in features:
-            for i in range(len(feature["list_input_ids"])):
-                list_merged_features.append(
-                    {
-                        "input_ids": feature["list_input_ids"][i],
-                        "attention_mask": feature["list_attention_mask"][i],
-                    }
-                )
-        
-        merged_features = []
-        for feature in features:
-            merged_features.append(
-                {
-                    "input_ids": feature["input_ids_j"],
-                    "attention_mask": feature["attention_mask_j"],
-                }
-            )
-            merged_features.append(
-                {
-                    "input_ids": feature["input_ids_k"],
-                    "attention_mask": feature["attention_mask_k"],
-                }
-            )
-
-        list_batch = self.tokenizer.pad(
-            list_merged_features,
-            padding=self.padding,
-            max_length=self.max_length,
-            pad_to_multiple_of=self.pad_to_multiple_of,
-            return_tensors=self.return_tensors,
-        )
-        batch = self.tokenizer.pad(
-            merged_features,
-            padding=self.padding,
-            max_length=self.max_length,
-            pad_to_multiple_of=self.pad_to_multiple_of,
-            return_tensors=self.return_tensors,
-        )
-
-        batch = {
-            "input_ids": batch["input_ids"],
-            "attention_mask": batch["attention_mask"],
-            "list_input_ids": list_batch["input_ids"],
-            "list_attention_mask": list_batch["attention_mask"],
-            "return_loss": True,
-        }
-        return batch
-
 
 # Define the trainer
 def compute_metrics(eval_pred):
@@ -346,76 +269,6 @@ class RewardTrainer(Trainer):
             return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
         return loss
 
-class ListRewardTrainer(Trainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
-        list_rewards = model(
-            input_ids=inputs["list_input_ids"], attention_mask=inputs["list_attention_mask"]
-        )[0]
-        
-        bsz = script_args.per_device_train_batch_size
-        model_num = inputs['list_input_ids'].shape[0] // bsz
-        predict = list_rewards.view(bsz, model_num)
-        # sort predict in descending order
-        # target = torch.sort(predict, dim=1, descending=True)[0].to(predict.device)
-
-        target = torch.tensor([[13.5,11.5,9.0,7.5,5.5] for _ in range(bsz)]).to(predict.device)
-        def listnet_loss(predict, target):
-            # predict : batch x n_items
-            # target : batch x n_items
-            top1_target = F.softmax(target, dim=1)
-            top1_predict = F.softmax(predict, dim=1)
-            return torch.mean(-torch.sum(top1_target * torch.log(top1_predict)))
-        
-        listnetloss = listnet_loss(predict, target)
-
-        rewards = model(
-            input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"]
-        )[0]
-        bsz = rewards.size(0)
-        jidx = torch.arange(0, bsz, 2)
-        kidx = jidx + 1
-        rewards_j = rewards[jidx]
-        rewards_k = rewards[kidx]
-        pairloss = -nn.functional.logsigmoid(rewards_j - rewards_k).mean()
-
-        alpha = 0.01
-        loss = alpha * listnetloss + (1 - alpha) * pairloss
-
-        return loss    
-
-class RankRewardTrainer(Trainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
-        list_rewards = model(
-            input_ids=inputs["list_input_ids"], attention_mask=inputs["list_attention_mask"]
-        )[0]
-        
-        bsz = script_args.per_device_train_batch_size
-        model_num = inputs['list_input_ids'].shape[0] // bsz
-        predict = list_rewards.view(bsz, model_num)
-        
-        predict = list_rewards.view(bsz, model_num)
-        # sort predict in descending order
-        # target = torch.sort(predict, dim=1, descending=True)[0].to(predict.device)
-
-        target = torch.tensor([[13.5,11.5,9.0,7.5,5.5] for _ in range(bsz)]).to(predict.device)
-        def listnet_loss(predict, target):
-            # predict : batch x n_items
-            # target : batch x n_items
-            top1_target = F.softmax(target, dim=1)
-            top1_predict = F.softmax(predict, dim=1)
-            return torch.mean(-torch.sum(top1_target * torch.log(top1_predict)))
-        
-        list_loss = listnet_loss(predict, target)
-
-        diff = predict.unsqueeze(2) - predict.unsqueeze(1)
-        # index = torch.triu(torch.ones(model_num, model_num), 1).bool()
-        # diff_list = diff[:, index]
-        # list_loss = -nn.functional.logsigmoid(diff_list).mean()   
-        diff_pair = torch.Tensor([torch.max(item) for item in diff])
-        pair_loss = -nn.functional.logsigmoid(diff_pair).mean()
-        alpha = 0.01
-        loss = alpha * list_loss + (1 - alpha) * pair_loss
-        return loss    
 
 # Train the model, woohoo.
 trainer = RewardTrainer(
