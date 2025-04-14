@@ -1,29 +1,27 @@
-########################
-# This script is modified from the TRL package https://github.com/huggingface/trl/blob/main/examples/research_projects/stack_llama/scripts/reward_modeling.py
-# This script is designed for the reward modeling with Mistral model which should be handled carefully because it does not have an official pad token
-# If you have any question, feel free to send me an email via wx13@illinois.edu
-########################
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
+import os
 
 # import evaluate
 import numpy as np
+import wandb
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import load_dataset, load_from_disk
-# from peft import LoraConfig, TaskType, get_peft_model
 from transformers import (
     AutoModelForSequenceClassification,
+    AutoModel,
     AutoTokenizer,
     HfArgumentParser,
     Trainer,
     TrainingArguments,
 )
+
 from transformers.utils import PaddingStrategy
-import wandb
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = "0"
+
+
+from utils import *
 
 # Define and parse arguments.
 @dataclass
@@ -43,13 +41,25 @@ class ScriptArguments:
     per_device_train_batch_size: Optional[int] = field(default=1)
     per_device_eval_batch_size: Optional[int] = field(default=1)
     # for 8 GPU, the global batch size is 512
-    gradient_accumulation_steps: Optional[int] = field(default=64)
+    gradient_accumulation_steps: Optional[int] = field(default=32)
     learning_rate: Optional[float] = field(default=2e-6)
     weight_decay: Optional[float] = field(default=0.001)
     model_name: Optional[str] = field(
         default="meta-llama/Meta-Llama-3-8B-Instruct",
         metadata={
             "help": "The model that you want to train from the Hugging Face hub. E.g. gpt2, gpt2-xl, bert, etc."
+        },
+    )
+    model_path: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Path to reward model."
+        },
+    )
+    tokenizer_path: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The model that you want to train from the Hugging Face hub. E.g. gpt2, gpt2-xl, bert, etc."    
         },
     )
     bf16: Optional[bool] = field(
@@ -102,40 +112,43 @@ class ScriptArguments:
         default=True,
         metadata={"help": "Load the dataset from disk"},
     )
+    config_path: Optional[str] = field(
+        default="./configs/config.json",
+        metadata={"help": "The path to the reward model config"},
+    )
+    train_set_size: Optional[int] = field(
+        default=-1,
+        metadata={"help": "The size of the training set"},
+    )
 
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
 
+reward_models = load_reward_model_config(script_args.config_path)
+model_config = reward_models[script_args.model_name]
+
 # Load the value-head model and tokenizer.
-tokenizer_name = script_args.model_name
-tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast = False)
+tokenizer_path = script_args.tokenizer_path if script_args.tokenizer_path else model_config.model_path
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
 
-# Adjusted according to the base model
-# Need to do this for the models that don't have an official pad token.
-#tokenizer.pad_token = tokenizer.eos_token
-#tokenizer.pad_token_id = tokenizer.eos_token_id
-# tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-# print(tokenizer.padding_side)
-# tokenizer.truncation_side = "left"
-# tokenizer.model_max_length = script_args.max_length
-# tokenizer.padding_side = "right"
-
-
+tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+print(tokenizer.padding_side)
+tokenizer.truncation_side = "left"
+tokenizer.model_max_length = script_args.max_length
 
 # Get the dataset
 train_path = script_args.train_set_path
 eval_path = script_args.eval_set_path
 output_name = script_args.output_path
 
-
 def build_dataset(tokenizer, train_path, eval_path):
 
     def tokenize(sample):
         sample['positive'] = tokenizer.apply_chat_template(
-            sample['chosen'], tokenize=False, add_generation_prompt=False).replace(tokenizer.bos_token, "")
+            sample['chosen'], tokenize=False, add_generation_prompt=False)
         sample['negative'] = tokenizer.apply_chat_template(
-            sample['rejected'], tokenize=False, add_generation_prompt=False).replace(tokenizer.bos_token, "")
+            sample['rejected'], tokenize=False, add_generation_prompt=False)
         tokenized_pos = tokenizer(sample['positive'], truncation=True)
         tokenized_neg = tokenizer(sample['negative'], truncation=True)
         sample["input_ids_j"] = tokenized_pos["input_ids"]
@@ -144,25 +157,34 @@ def build_dataset(tokenizer, train_path, eval_path):
         sample["attention_mask_k"] = tokenized_neg["attention_mask"]
         return sample
 
-    
     if script_args.from_disk:
         ds = load_from_disk(train_path).shuffle(seed=42)
     else:
         ds = load_dataset(train_path, split="train").shuffle(seed=42)
-    # ds = ds.select(range(2000))
     ds = ds.map(tokenize, num_proc=8)
 
     eval_dataset = None
 
     train_dataset = ds
-    #eval_dataset = load_dataset(eval_path, split="train").shuffle(seed=42).select(range(500))
     eval_dataset = ds.select(range(500))
     return train_dataset, eval_dataset
 
 
 train_dataset, eval_dataset = build_dataset(tokenizer, train_path, eval_path)
+
+if script_args.train_set_size > 0:
+    assert script_args.train_set_size <= len(train_dataset), "The training set size is larger than the dataset"
+    train_dataset = train_dataset.select(range(script_args.train_set_size))
+
 print("Training set: ", len(train_dataset), " Eval set: ", len(eval_dataset))
 
+# Define the trainer, set your wandb key here
+wandb.login(key="")
+
+# set the save_every_steps as the total number of training steps - 1
+if script_args.deepspeed is not None:
+    script_args.save_every_steps = len(train_dataset) // script_args.per_device_train_batch_size // script_args.gradient_accumulation_steps - 1
+    print("Set save_every_steps as ", script_args.save_every_steps)
 
 # Define the trainer
 training_args = TrainingArguments(
@@ -191,13 +213,22 @@ training_args = TrainingArguments(
     report_to='wandb'
 )
 
+# Set model settings from config
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+model_path = script_args.model_path if script_args.model_path else model_config.model_path
 model = AutoModelForSequenceClassification.from_pretrained(
-    script_args.model_name, num_labels=1, torch_dtype=torch.bfloat16, use_flash_attention_2=True,
+    model_path,
+    torch_dtype=torch.bfloat16,
+    use_flash_attention_2=True,
+    trust_remote_code=True,
 )
+
+if hasattr(model.config, "attn_implementation"):
+    model.config.attn_implementation = "flash_attention_2"
 
 model.config.use_cache = not script_args.gradient_checkpointing
 model.config.pad_token_id = tokenizer.pad_token_id
-# model.resize_token_embeddings(len(tokenizer))
 
 num_proc = 24  # Can adjust to be higher if you have more processors.
 original_columns = train_dataset.column_names
@@ -256,9 +287,10 @@ def compute_metrics(eval_pred):
 
 class RewardTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
-        rewards = model(
-            input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"]
-        )[0]
+        if "GRM-llama3-8B-distill" in script_args.model_name:
+            rewards = model(inputs["input_ids"], attention_mask=inputs["attention_mask"]).logits
+        else:
+            rewards = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])[0]
         bsz = rewards.size(0)
         jidx = torch.arange(0, bsz, 2)
         kidx = jidx + 1
@@ -268,7 +300,7 @@ class RewardTrainer(Trainer):
         if return_outputs:
             return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
         return loss
-
+  
 
 # Train the model, woohoo.
 trainer = RewardTrainer(
@@ -286,6 +318,6 @@ trainer.train()
 
 
 print("Saving last checkpoint of the model")
-#model.save_pretrained(output_name + "/last_checkpoint")
 trainer.save_model(output_name + "/last_checkpoint")
 tokenizer.save_pretrained(output_name + "/last_checkpoint")
+

@@ -1,0 +1,27 @@
+[
+    {
+        "model_name": "Skywork-Reward-Llama-3.1-8B-v0.2",
+        "model_path": "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2",
+        "pipeline_class": "LlamaPipeline"
+    },
+    {
+        "model_name": "FsfairX-LLaMA3-RM-v0.1",
+        "model_path": "sfairXC/FsfairX-LLaMA3-RM-v0.1",
+        "pipeline_class": "LlamaPipeline"
+    },
+    {
+        "model_name": "RM-Mistral-7B",
+        "model_path": "weqweasdas/RM-Mistral-7B",
+        "pipeline_class": "LlamaPipeline"
+    },
+    {
+        "model_name": "GRM-llama3-8B-distill",
+        "model_path": "Ray2333/GRM-llama3-8B-distill",
+        "pipeline_class": "GRMPipeline"
+    },
+    {
+        "model_name": "BTRM_Qwen2_7b_0613",
+        "model_path": "CIR-AMS/BTRM_Qwen2_7b_0613",
+        "pipeline_class": "LlamaPipeline"
+    }
+]

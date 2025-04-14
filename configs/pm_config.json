@@ -1,0 +1,37 @@
+[
+    {
+        "model_name": "GPT-4o-mini-2024-07-18",
+        "model_path": "",
+        "arena_score": 1273
+    },
+    {
+        "model_name": "Qwen2.5-72B-Instruct",
+        "model_path": "",
+        "arena_score": 1258
+    },
+    {
+        "model_name": "Llama-3.1-70B-Instruct",
+        "model_path": "",
+        "arena_score": 1248
+    },
+    {
+        "model_name": "gemma-2-27b-it",
+        "model_path": "",
+        "arena_score": 1220
+    },
+    {
+        "model_name": "gemma-2-9b-it-SimPO",
+        "model_path": "",
+        "arena_score": 1216
+    },
+    {
+        "model_name": "gemma-2-9b-it",
+        "model_path": "",
+        "arena_score": 1191
+    },
+    {
+        "model_name": "Llama-3.1-8B-Instruct",
+        "model_path": "",
+        "arena_score": 1176
+    }
+]
