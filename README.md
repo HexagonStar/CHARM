@@ -31,9 +31,9 @@ git clone https://github.com/HexagonStar/CHARM.git
 ```
 
 ## Dataset
-We randomly sampled 20K instructions from the [Preference700K](https://huggingface.co/datasets/hendrydong/preference_700K). You can download it from [here](https://huggingface.co/datasets/shawnxzhu/CHARM-preference20K) and put it under the `./datasets/preference20K` folder.
+We randomly sampled 20K instructions from the [Preference700K](https://huggingface.co/datasets/hendrydong/preference_700K). You can download it from [HERE](https://huggingface.co/datasets/shawnxzhu/CHARM-preference20K) and put it under the `./datasets/preference20K` folder.
 
-We also provide the generated responses using selected policy models. You can download the datasets from [this collection](https://huggingface.co/datasets/HexagonStar/CHARM-data) and put them under the `./datasets/preference20K` folder too.
+We also provide the generated responses using selected policy models. You can download the datasets from [this collection](https://huggingface.co/collections/shawnxzhu/charm-datasets-67fa21cb8ee69d220e369fc0) and put them under the `./datasets/preference20K` folder too.
 
 Or you can generate your own datasets following the steps:
 
@@ -77,7 +77,7 @@ bash scripts/train_rm.sh
 
 3. The trained reward model will be saved in the `./models` directory.
 
-4. You can also download the calibrated Skywork-RM from [here](https://huggingface.co/datasets/HexagonStar/CHARM-data).
+4. You can also download the calibrated Skywork-RM from [HERE](https://huggingface.co/collections/shawnxzhu/charm-models-67fa222b7cfcb309de09ab93).
 
 ## Evaluation
 
