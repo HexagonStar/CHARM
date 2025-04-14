@@ -19,4 +19,4 @@ pip install transformers==4.43.4
 pip install numpy==1.26.4 
 pip install vllm
 
-cd CHARM
+cd ../CHARM
