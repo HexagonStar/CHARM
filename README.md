@@ -1,6 +1,6 @@
 # CHARM: Calibrating Reward Models With Chatbot Arena Scores
 
-This is the repository for the paper [CHARM: Calibrating Reward Models With Chatbot Arena Scores]().
+This is the repository for the paper [CHARM: Calibrating Reward Models With Chatbot Arena Scores](https://arxiv.org/abs/2504.10045).
 
 
 ## Setup
@@ -72,5 +72,10 @@ You can evaluate the calibrated reward model on benchmarks like [RM-Bench](https
 If you find this work useful, please consider citing:
 
 ```bibtex
-
+@article{zhu2025charmcalibratingrewardmodels,
+  title={CHARM: Calibrating Reward Models With Chatbot Arena Scores},
+  author={Xiao Zhu and Chenmien Tan and Pinzhen Chen and Rico Sennrich and Yanlin Zhang and Hanxu Hu},
+  journal={https://arxiv.org/abs/2504.10045},
+  year={2025}
+}
 ```
